@@ -1260,6 +1260,25 @@ static inline double linear_interpolate( double y1, double y2, double t )
 	return y1 + ( y2 - y1 ) * t;
 }
 
+static inline double lerp(double a, double b, double f)
+{
+    return a * (1.0 - f) + (b * f);
+}
+
+static inline double ExponentialEaseInOut(double p)
+{
+	if(p == 0.0 || p == 1.0) return p;
+	
+	if(p < 0.5)
+	{
+		return 0.5 * pow(2, (20 * p) - 10);
+	}
+	else
+	{
+		return -0.5 * pow(2, (-20 * p) + 10) + 1;
+	}
+}
+
 /** A smooth spline interpolation for animation.
  *
  * For non-closed curves, you need to also supply the tangent vector at the first and last control point.
@@ -1269,6 +1288,7 @@ static inline double linear_interpolate( double y1, double y2, double t )
 
 static inline double catmull_rom_interpolate( double y0, double y1, double y2, double y3, double t )
 {
+	return lerp(y0,y2,ExponentialEaseInOut(t));
 	double t2 = t * t;
 	double a0 = -0.5 * y0 + 1.5 * y1 - 1.5 * y2 + 0.5 * y3;
 	double a1 = y0 - 2.5 * y1 + 2 * y2 - 0.5 * y3;
