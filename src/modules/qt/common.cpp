@@ -20,11 +20,16 @@
 #include <QApplication>
 #include <QImageReader>
 #include <QLocale>
+#include <QThread>
+#include <QTimer>
+#include <qobject.h>
 
 #if defined(Q_OS_UNIX) && !defined(Q_OS_MAC) && !defined(Q_OS_ANDROID)
 #include <X11/Xlib.h>
 #include <cstdlib>
 #endif
+
+bool qApplicationCreated = false;
 
 bool createQApplicationIfNeeded(mlt_service service)
 {
@@ -53,7 +58,24 @@ bool createQApplicationIfNeeded(mlt_service service)
             mlt_properties_set(mlt_global_properties(), "qt_argv", "MLT");
         static int argc = 1;
         static char *argv[] = {mlt_properties_get(mlt_global_properties(), "qt_argv")};
-        new QApplication(argc, argv);
+        qInfo() << "creating thread";
+        QThread *eventLoopThread = new QThread();
+        QObject::connect(eventLoopThread, &QThread::started, []() {
+            qInfo() << "creating QApplication";
+            QApplication *app = new QApplication(argc, argv);
+            qInfo() << "created application";
+            qApplicationCreated = true;
+            qInfo() << "executing";
+            app->exec();
+            qInfo() << "somehow done executing";
+        });
+        qInfo() << "starting thread";
+        eventLoopThread->start();
+
+        qInfo() << "waiting for application to be created";
+        while (!qApplicationCreated) {
+        }
+        qInfo() << "ok now";
         const char *localename = mlt_properties_get_lcnumeric(MLT_SERVICE_PROPERTIES(service));
         QLocale::setDefault(QLocale(localename));
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)

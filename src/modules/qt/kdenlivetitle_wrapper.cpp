@@ -78,6 +78,13 @@ Q_DECLARE_METATYPE(std::shared_ptr<TypeWriter>);
 // Private Constants
 static const double PI = 3.14159265358979323846;
 
+bool areWeGuiThread()
+{
+    qInfo() << "checking if we are in gui thread. current:" << QThread::currentThread()
+            << "app:" << qApp->thread();
+    return QThread::currentThread() == qApp->thread();
+}
+
 class TitleState;
 
 class TitleStateInstance
@@ -160,13 +167,12 @@ public:
 
     ~TitleStateInstance() { destroy(); }
 };
-TitleStateInstance *globalInstance;
 
 class TitleState
 {
 public:
     // QMap<QThread *, TitleStateInstance *> instances;
-    // TitleStateInstance *instance{nullptr};
+    TitleStateInstance *instance{nullptr};
     QMutex instancesLock;
     QMutex prepareLock;
     bool prepared{false};
@@ -177,27 +183,34 @@ public:
 
     TitleStateInstance *getInstance()
     {
-        // qInfo() << "getInstance";
+        qInfo() << "getInstance";
         instancesLock.lock();
+        qInfo() << "getInstance2";
 
-        if (globalInstance != nullptr) {
-            // qInfo() << "getInstance OK1";
+        if (instance != nullptr) {
+            qInfo() << "getInstance OK1";
             instancesLock.unlock();
-            return globalInstance;
+            return instance;
         }
 
-        QMetaObject::invokeMethod(
-            qApp,
-            [this]() {
-                globalInstance = new TitleStateInstance(this->width, this->height);
-                globalInstance->create();
-            },
-            Qt::BlockingQueuedConnection);
+        auto toRun = [this]() {
+            qInfo() << "we are now in main thread";
+            instance = new TitleStateInstance(this->width, this->height);
+            instance->create();
+        };
+
+        if (areWeGuiThread()) {
+            qInfo() << "we are already in main";
+            toRun();
+        } else {
+            qInfo() << "asking main thread";
+            QMetaObject::invokeMethod(qApp, toRun, Qt::BlockingQueuedConnection);
+        }
 
         instancesLock.unlock();
 
         qInfo() << "getInstance OK2";
-        return globalInstance;
+        return instance;
     }
 
     bool shouldPrepare()
@@ -938,6 +951,7 @@ int initTitleProducer(producer_ktitle self)
         qRegisterMetaType<std::shared_ptr<TypeWriter>>();
     }
 #endif
+    qInfo() << "==== initTitleProducer as thread" << QThread::currentThread();
     self->state_class = (uint8_t *) new TitleState();
     return true;
 }
@@ -1068,34 +1082,34 @@ void drawKdenliveTitle(producer_ktitle self,
         if (end.isNull()) {
             if (qApp->thread() != QThread::currentThread()) {
                 TitleStateInstance *instance = titleState->getInstance();
-                // qInfo() << "render thread" << QThread::currentThread();
+                qInfo() << "render thread" << QThread::currentThread();
                 QImage img2;
                 QMetaObject::invokeMethod(
                     qApp,
                     [instance, &img2, position]() {
-                        // qInfo() << "in the thing 1";
+                        qInfo() << "in the thing 1";
                         instance->use();
-                        // qInfo() << "used";
+                        qInfo() << "used";
                         instance->rootItem->setProperty("currentTime", position / 60 * 1000);
-                        // qInfo() << "now makeCurrent()";
+                        qInfo() << "now makeCurrent()";
                         instance->context->makeCurrent(instance->surface);
-                        // qInfo() << "now update()";
+                        qInfo() << "now update()";
                         instance->window->update();
-                        // qInfo() << "now beginFrame()";
+                        qInfo() << "now beginFrame()";
                         instance->renderControl->beginFrame();
-                        // qInfo() << "now polishItems()";
+                        qInfo() << "now polishItems()";
                         instance->renderControl->polishItems();
-                        // qInfo() << "now sync()";
+                        qInfo() << "now sync()";
                         instance->renderControl->sync();
-                        // qInfo() << "now render()";
+                        qInfo() << "now render()";
                         instance->renderControl->render();
-                        // qInfo() << "now endFrame()";
+                        qInfo() << "now endFrame()";
                         instance->renderControl->endFrame();
-                        // qInfo() << "now toImage()";
+                        qInfo() << "now toImage()";
                         img2 = instance->fbo->toImage();
                     },
                     Qt::BlockingQueuedConnection);
-                // qInfo() << "now outside";
+                qInfo() << "now outside";
 
                 // QImage img = instance->surface->qInfo() << "img size" << img.rect();
                 qInfo() << img2.size();
