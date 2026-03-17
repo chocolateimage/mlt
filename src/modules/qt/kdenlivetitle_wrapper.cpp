@@ -62,6 +62,7 @@
 #include <qabstractanimation.h>
 #include <qmutex.h>
 #include <qnamespace.h>
+#include <qobjectdefs.h>
 #include <qoffscreensurface.h>
 #include <qopenglcontext.h>
 #include <qopenglframebufferobject.h>
@@ -76,12 +77,6 @@ Q_DECLARE_METATYPE(std::shared_ptr<TypeWriter>);
 
 // Private Constants
 static const double PI = 3.14159265358979323846;
-
-class CustomDriver : public QAnimationDriver
-{
-public:
-    void start2() { start(); }
-};
 
 class TitleState;
 
@@ -136,6 +131,9 @@ public:
         // component->setParent(renderControl->window()->contentItem());
 
         renderControl->initialize();
+
+        context->doneCurrent();
+        qInfo() << "create()-d";
     }
 
     void use() { context->makeCurrent(surface); }
@@ -162,33 +160,44 @@ public:
 
     ~TitleStateInstance() { destroy(); }
 };
+TitleStateInstance *globalInstance;
 
 class TitleState
 {
 public:
-    QMap<QThread *, TitleStateInstance *> instances;
+    // QMap<QThread *, TitleStateInstance *> instances;
+    // TitleStateInstance *instance{nullptr};
     QMutex instancesLock;
     QMutex prepareLock;
     bool prepared{false};
     int width;
     int height;
 
-    TitleState() { qApp->setAttribute(Qt::AA_DontCheckOpenGLContextThreadAffinity, true); }
+    TitleState() { /*qApp->setAttribute(Qt::AA_DontCheckOpenGLContextThreadAffinity, true);*/ }
 
     TitleStateInstance *getInstance()
     {
+        // qInfo() << "getInstance";
         instancesLock.lock();
-        QThread *thread = QThread::currentThread();
-        if (instances.contains(thread)) {
+
+        if (globalInstance != nullptr) {
+            // qInfo() << "getInstance OK1";
             instancesLock.unlock();
-            return instances[thread];
+            return globalInstance;
         }
 
-        TitleStateInstance *instance = new TitleStateInstance(width, height);
-        instance->create();
-        instances[thread] = instance;
+        QMetaObject::invokeMethod(
+            qApp,
+            [this]() {
+                globalInstance = new TitleStateInstance(this->width, this->height);
+                globalInstance->create();
+            },
+            Qt::BlockingQueuedConnection);
+
         instancesLock.unlock();
-        return instance;
+
+        qInfo() << "getInstance OK2";
+        return globalInstance;
     }
 
     bool shouldPrepare()
@@ -204,13 +213,13 @@ public:
 
     void prepare(int width, int height)
     {
-        this->width = width;
-        this->height = height;
+        this->width = 1280;
+        this->height = 720;
         this->prepared = false;
         prepareLock.unlock();
     }
 
-    ~TitleState() { qDeleteAll(instances); }
+    ~TitleState() {}
 };
 
 class ImageItem : public QGraphicsItem
@@ -1059,18 +1068,35 @@ void drawKdenliveTitle(producer_ktitle self,
         if (end.isNull()) {
             if (qApp->thread() != QThread::currentThread()) {
                 TitleStateInstance *instance = titleState->getInstance();
-                qInfo() << "render thread" << QThread::currentThread();
+                // qInfo() << "render thread" << QThread::currentThread();
+                QImage img2;
+                QMetaObject::invokeMethod(
+                    qApp,
+                    [instance, &img2, position]() {
+                        // qInfo() << "in the thing 1";
+                        instance->use();
+                        // qInfo() << "used";
+                        instance->rootItem->setProperty("currentTime", position / 60 * 1000);
+                        // qInfo() << "now makeCurrent()";
+                        instance->context->makeCurrent(instance->surface);
+                        // qInfo() << "now update()";
+                        instance->window->update();
+                        // qInfo() << "now beginFrame()";
+                        instance->renderControl->beginFrame();
+                        // qInfo() << "now polishItems()";
+                        instance->renderControl->polishItems();
+                        // qInfo() << "now sync()";
+                        instance->renderControl->sync();
+                        // qInfo() << "now render()";
+                        instance->renderControl->render();
+                        // qInfo() << "now endFrame()";
+                        instance->renderControl->endFrame();
+                        // qInfo() << "now toImage()";
+                        img2 = instance->fbo->toImage();
+                    },
+                    Qt::BlockingQueuedConnection);
+                // qInfo() << "now outside";
 
-                instance->use();
-                instance->rootItem->setProperty("currentTime", position / 60 * 1000);
-                instance->context->makeCurrent(instance->surface);
-                instance->window->update();
-                instance->renderControl->beginFrame();
-                instance->renderControl->polishItems();
-                instance->renderControl->sync();
-                instance->renderControl->render();
-                instance->renderControl->endFrame();
-                QImage img2 = instance->fbo->toImage();
                 // QImage img = instance->surface->qInfo() << "img size" << img.rect();
                 qInfo() << img2.size();
                 p1.drawImage(QRectF(0, 0, width, height), img2);
