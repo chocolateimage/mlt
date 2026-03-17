@@ -185,7 +185,9 @@ static int producer_get_frame(mlt_producer producer, mlt_frame_ptr frame, int in
 
 static void producer_close(mlt_producer producer)
 {
+    fprintf(stderr, "--------- CLOSING PRODUCER KDENLIVE TITLE ------------\n");
     producer_ktitle self = producer->child;
+    closeTitleProducer(self);
     producer->close = NULL;
     mlt_service_cache_purge(MLT_PRODUCER_SERVICE(producer));
     mlt_producer_close(producer);
@@ -198,6 +200,7 @@ mlt_producer producer_kdenlivetitle_init(mlt_profile profile,
                                          char *filename)
 {
     /* Create a new producer object */
+    fprintf(stderr, "--------- CREATING PRODUCER KDENLIVE TITLE ------------\n");
 
     producer_ktitle self = calloc(1, sizeof(struct producer_ktitle_s));
     if (self != NULL && mlt_producer_init(&self->parent, self) == 0) {
@@ -211,7 +214,7 @@ mlt_producer producer_kdenlivetitle_init(mlt_profile profile,
         mlt_properties_set_int(properties, "meta.media.progressive", 1);
         mlt_properties_set_int(properties, "aspect_ratio", 1);
         mlt_properties_set_int(properties, "seekable", 1);
-        if (!initTitleProducer(producer)) {
+        if (!initTitleProducer(self)) {
             mlt_producer_close(producer);
             return NULL;
         }

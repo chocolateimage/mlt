@@ -40,6 +40,8 @@ function(mlt_add_qt_module ARG_TARGET)
       qimage_wrapper.cpp
       transition_qtblend.cpp
       typewriter.cpp
+      ttf2mesh/ttf2mesh.c
+      ttf2mesh/ttf2mesh.h
     )
 
     file(GLOB YML "*.yml")
@@ -69,6 +71,10 @@ function(mlt_add_qt_module ARG_TARGET)
     if(ARG_QT_VERSION EQUAL 6)
       target_link_libraries(${ARG_TARGET} PRIVATE
         Qt6::SvgWidgets
+        Qt6::Gui
+        Qt6::OpenGL
+        Qt6::Quick
+        Qt6::Quick3D
       )
       if(Qt6Core5Compat_FOUND)
         target_link_libraries(${ARG_TARGET} PRIVATE

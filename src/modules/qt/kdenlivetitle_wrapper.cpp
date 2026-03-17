@@ -45,9 +45,29 @@
 #include <QRectF>
 #include <QWidget>
 
+#include <QAnimationDriver>
 #include <QGraphicsBlurEffect>
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsEffect>
+#include <QOffscreenSurface>
+#include <QOpenGLContext>
+#include <QQmlComponent>
+#include <QQmlEngine>
+#include <QQuickGraphicsDevice>
+#include <QQuickItem>
+#include <QQuickRenderControl>
+#include <QQuickRenderTarget>
+#include <QQuickWindow>
+#include <QThread>
+#include <qabstractanimation.h>
+#include <qmutex.h>
+#include <qnamespace.h>
+#include <qoffscreensurface.h>
+#include <qopenglcontext.h>
+#include <qopenglframebufferobject.h>
+#include <qqmlcomponent.h>
+#include <qqmlengine.h>
+#include <qthread.h>
 
 #include <memory>
 
@@ -56,6 +76,142 @@ Q_DECLARE_METATYPE(std::shared_ptr<TypeWriter>);
 
 // Private Constants
 static const double PI = 3.14159265358979323846;
+
+class CustomDriver : public QAnimationDriver
+{
+public:
+    void start2() { start(); }
+};
+
+class TitleState;
+
+class TitleStateInstance
+{
+public:
+    QQuickRenderControl *renderControl{nullptr};
+    QQuickWindow *window{nullptr};
+    QQmlEngine *engine{nullptr};
+    QQmlComponent *component{nullptr};
+    QOffscreenSurface *surface{nullptr};
+    QOpenGLContext *context{nullptr};
+    QOpenGLFramebufferObject *fbo{nullptr};
+    QQuickItem *rootItem{nullptr};
+    int width;
+    int height;
+
+    TitleStateInstance(int width, int height)
+    {
+        this->width = width;
+        this->height = height;
+    }
+
+    void create()
+    {
+        if (renderControl != nullptr)
+            return;
+
+        qInfo() << "create thread" << QThread::currentThread();
+        context = new QOpenGLContext();
+        context->create();
+
+        surface = new QOffscreenSurface();
+        surface->create();
+
+        context->makeCurrent(surface);
+
+        fbo = new QOpenGLFramebufferObject(QSize(width, height),
+                                           QOpenGLFramebufferObject::CombinedDepthStencil);
+
+        renderControl = new QQuickRenderControl();
+        window = new QQuickWindow(renderControl);
+        window->setGeometry(0, 0, width, height);
+        window->setGraphicsDevice(QQuickGraphicsDevice::fromOpenGLContext(context));
+        window->setRenderTarget(QQuickRenderTarget::fromOpenGLTexture(fbo->texture(), fbo->size()));
+        engine = new QQmlEngine();
+        component = new QQmlComponent(engine, "/home/lukas/Programming/mlt/Main.qml");
+        rootItem = qobject_cast<QQuickItem *>(component->create());
+        rootItem->setSize(QSize(width, height));
+
+        rootItem->setParentItem(window->contentItem());
+        // component->setParent(renderControl->window()->contentItem());
+
+        renderControl->initialize();
+    }
+
+    void use() { context->makeCurrent(surface); }
+
+    void unUse() { context->doneCurrent(); }
+
+    void destroy()
+    {
+        if (renderControl == nullptr)
+            return;
+        // qInfo() << "deleting title state instance";
+        // delete engine;
+        // qInfo() << ".1";
+        // delete component;
+        // qInfo() << ".2";
+        // delete renderControl;
+        // qInfo() << ".3";
+        // delete window;
+        // qInfo() << ".4";
+
+        // renderControl = nullptr;
+        // qInfo() << "DELETED";
+    }
+
+    ~TitleStateInstance() { destroy(); }
+};
+
+class TitleState
+{
+public:
+    QMap<QThread *, TitleStateInstance *> instances;
+    QMutex instancesLock;
+    QMutex prepareLock;
+    bool prepared{false};
+    int width;
+    int height;
+
+    TitleState() { qApp->setAttribute(Qt::AA_DontCheckOpenGLContextThreadAffinity, true); }
+
+    TitleStateInstance *getInstance()
+    {
+        instancesLock.lock();
+        QThread *thread = QThread::currentThread();
+        if (instances.contains(thread)) {
+            instancesLock.unlock();
+            return instances[thread];
+        }
+
+        TitleStateInstance *instance = new TitleStateInstance(width, height);
+        instance->create();
+        instances[thread] = instance;
+        instancesLock.unlock();
+        return instance;
+    }
+
+    bool shouldPrepare()
+    {
+        prepareLock.lock();
+        if (prepared) {
+            prepareLock.unlock();
+            return false;
+        } else {
+            return true;
+        }
+    }
+
+    void prepare(int width, int height)
+    {
+        this->width = width;
+        this->height = height;
+        this->prepared = false;
+        prepareLock.unlock();
+    }
+
+    ~TitleState() { qDeleteAll(instances); }
+};
 
 class ImageItem : public QGraphicsItem
 {
@@ -756,9 +912,9 @@ void loadFromXml(producer_ktitle self,
     return;
 }
 
-int initTitleProducer(mlt_producer producer)
+int initTitleProducer(producer_ktitle self)
 {
-    if (!createQApplicationIfNeeded(MLT_PRODUCER_SERVICE(producer))) {
+    if (!createQApplicationIfNeeded(MLT_PRODUCER_SERVICE(&self->parent))) {
         return false;
     }
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
@@ -773,7 +929,14 @@ int initTitleProducer(mlt_producer producer)
         qRegisterMetaType<std::shared_ptr<TypeWriter>>();
     }
 #endif
+    self->state_class = (uint8_t *) new TitleState();
     return true;
+}
+
+void closeTitleProducer(producer_ktitle self)
+{
+    TitleState *titleState = (TitleState *) self->state_class;
+    delete titleState;
 }
 
 void drawKdenliveTitle(producer_ktitle self,
@@ -792,6 +955,11 @@ void drawKdenliveTitle(producer_ktitle self,
     // Obtain properties of frame
     mlt_properties properties = MLT_FRAME_PROPERTIES(frame);
 
+    TitleState *titleState = (TitleState *) self->state_class;
+    if (titleState->shouldPrepare()) {
+        titleState->prepare(width, height);
+    }
+
     pthread_mutex_lock(&self->mutex);
 
     // Check if user wants us to reload the image or if we need animation
@@ -807,7 +975,7 @@ void drawKdenliveTitle(producer_ktitle self,
         mlt_properties_set_int(producer_props, "force_reload", 0);
     }
     int image_size = width * height * 4;
-    if (self->current_image == NULL || animated) {
+    if (self->current_image == NULL || animated || true) {
         // restore QGraphicsScene
         QGraphicsScene *scene = static_cast<QGraphicsScene *>(
             mlt_properties_get_data(producer_props, "qscene", NULL));
@@ -889,7 +1057,28 @@ void drawKdenliveTitle(producer_ktitle self,
         mlt_position anim_out = mlt_properties_get_position(producer_props, "_animation_out");
 
         if (end.isNull()) {
-            scene->render(&p1, source, start, Qt::IgnoreAspectRatio);
+            if (qApp->thread() != QThread::currentThread()) {
+                TitleStateInstance *instance = titleState->getInstance();
+                qInfo() << "render thread" << QThread::currentThread();
+
+                instance->use();
+                instance->rootItem->setProperty("currentTime", position / 60 * 1000);
+                instance->context->makeCurrent(instance->surface);
+                instance->window->update();
+                instance->renderControl->beginFrame();
+                instance->renderControl->polishItems();
+                instance->renderControl->sync();
+                instance->renderControl->render();
+                instance->renderControl->endFrame();
+                QImage img2 = instance->fbo->toImage();
+                // QImage img = instance->surface->qInfo() << "img size" << img.rect();
+                qInfo() << img2.size();
+                p1.drawImage(QRectF(0, 0, width, height), img2);
+                instance->unUse();
+                // scene->render(&p1, source, start, Qt::IgnoreAspectRatio);
+            } else {
+                qInfo() << "is gui thread.. not rendering";
+            }
         } else if (position > anim_out) {
             scene->render(&p1, source, end, Qt::IgnoreAspectRatio);
         } else {
