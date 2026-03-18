@@ -68,6 +68,7 @@
 #include <qopenglframebufferobject.h>
 #include <qqmlcomponent.h>
 #include <qqmlengine.h>
+#include <qsurfaceformat.h>
 #include <qthread.h>
 
 #include <memory>
@@ -113,13 +114,29 @@ public:
             return;
 
         qInfo() << "create thread" << QThread::currentThread();
+        QSurfaceFormat format;
+        format.setRenderableType(QSurfaceFormat::OpenGL);
+        format.setDepthBufferSize(24);
+        format.setStencilBufferSize(8);
+        format.setSwapBehavior(QSurfaceFormat::SingleBuffer);
+
         context = new QOpenGLContext();
+        context->setFormat(format);
         context->create();
 
         surface = new QOffscreenSurface();
+        surface->setFormat(context->format());
         surface->create();
 
-        context->makeCurrent(surface);
+        if (!surface->isValid()) {
+            qInfo() << "surface NOT VALID!!!!!!!!!";
+            return;
+        }
+
+        if (!context->makeCurrent(surface)) {
+            qInfo() << "makeCurrent FAILED!!!!!!!!!";
+            return;
+        }
 
         fbo = new QOpenGLFramebufferObject(QSize(width, height),
                                            QOpenGLFramebufferObject::CombinedDepthStencil);
@@ -137,7 +154,10 @@ public:
         rootItem->setParentItem(window->contentItem());
         // component->setParent(renderControl->window()->contentItem());
 
-        renderControl->initialize();
+        if (!renderControl->initialize()) {
+            qInfo() << "renderControl FAILED!!!!!!!!!";
+            return;
+        }
 
         context->doneCurrent();
         qInfo() << "create()-d";
@@ -179,16 +199,13 @@ public:
     int width;
     int height;
 
-    TitleState() { /*qApp->setAttribute(Qt::AA_DontCheckOpenGLContextThreadAffinity, true);*/ }
+    TitleState() {}
 
     TitleStateInstance *getInstance()
     {
-        qInfo() << "getInstance";
         instancesLock.lock();
-        qInfo() << "getInstance2";
 
         if (instance != nullptr) {
-            qInfo() << "getInstance OK1";
             instancesLock.unlock();
             return instance;
         }
@@ -1082,40 +1099,24 @@ void drawKdenliveTitle(producer_ktitle self,
         if (end.isNull()) {
             if (qApp->thread() != QThread::currentThread()) {
                 TitleStateInstance *instance = titleState->getInstance();
-                qInfo() << "render thread" << QThread::currentThread();
                 QImage img2;
                 QMetaObject::invokeMethod(
                     qApp,
                     [instance, &img2, position]() {
-                        qInfo() << "in the thing 1";
                         instance->use();
-                        qInfo() << "used";
                         instance->rootItem->setProperty("currentTime", position / 60 * 1000);
-                        qInfo() << "now makeCurrent()";
                         instance->context->makeCurrent(instance->surface);
-                        qInfo() << "now update()";
-                        instance->window->update();
-                        qInfo() << "now beginFrame()";
                         instance->renderControl->beginFrame();
-                        qInfo() << "now polishItems()";
                         instance->renderControl->polishItems();
-                        qInfo() << "now sync()";
                         instance->renderControl->sync();
-                        qInfo() << "now render()";
                         instance->renderControl->render();
-                        qInfo() << "now endFrame()";
                         instance->renderControl->endFrame();
-                        qInfo() << "now toImage()";
                         img2 = instance->fbo->toImage();
+                        instance->unUse();
                     },
                     Qt::BlockingQueuedConnection);
-                qInfo() << "now outside";
 
-                // QImage img = instance->surface->qInfo() << "img size" << img.rect();
-                qInfo() << img2.size();
                 p1.drawImage(QRectF(0, 0, width, height), img2);
-                instance->unUse();
-                // scene->render(&p1, source, start, Qt::IgnoreAspectRatio);
             } else {
                 qInfo() << "is gui thread.. not rendering";
             }

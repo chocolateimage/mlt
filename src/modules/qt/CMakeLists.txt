@@ -40,8 +40,6 @@ function(mlt_add_qt_module ARG_TARGET)
       qimage_wrapper.cpp
       transition_qtblend.cpp
       typewriter.cpp
-      ttf2mesh/ttf2mesh.c
-      ttf2mesh/ttf2mesh.h
     )
 
     file(GLOB YML "*.yml")

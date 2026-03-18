@@ -126,6 +126,7 @@ View3D {
             font.pointSize: 64
             scale: 64
             text: "Hello world"
+            asynchronous: false
         }
 
         pivot: Qt.vector3d(metrics.advanceWidth("Hello world") / 2, 0, gee.depth / 2)
