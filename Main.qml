@@ -8,6 +8,7 @@ View3D {
 
     // external clock (ms)
     property real currentTime: 0
+    property string theText: ""
 
     environment: SceneEnvironment {
         antialiasingMode: SceneEnvironment.MSAA
@@ -125,11 +126,11 @@ View3D {
             font.family: "Comic Sans MS"
             font.pointSize: 64
             scale: 64
-            text: "Hello world"
+            text: theText
             asynchronous: false
         }
 
-        pivot: Qt.vector3d(metrics.advanceWidth("Hello world") / 2, 0, gee.depth / 2)
+        pivot: Qt.vector3d(metrics.advanceWidth(theText) / 2, 0, gee.depth / 2)
 
         materials: [
             PrincipledMaterial {

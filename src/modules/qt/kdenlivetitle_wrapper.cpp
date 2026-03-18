@@ -143,6 +143,7 @@ public:
 
         renderControl = new QQuickRenderControl();
         window = new QQuickWindow(renderControl);
+        window->setColor(Qt::transparent);
         window->setGeometry(0, 0, width, height);
         window->setGraphicsDevice(QQuickGraphicsDevice::fromOpenGLContext(context));
         window->setRenderTarget(QQuickRenderTarget::fromOpenGLTexture(fbo->texture(), fbo->size()));
@@ -334,6 +335,7 @@ void blur(QImage &image, int radius)
 class PlainTextItem : public QGraphicsItem
 {
 public:
+    QString text;
     PlainTextItem(QString text,
                   QFont font,
                   double width,
@@ -357,6 +359,7 @@ public:
         m_align = align;
         m_width = width;
         m_tabWidth = tabWidth;
+        this->text = text;
         updateText(text);
     }
 
@@ -1070,8 +1073,12 @@ void drawKdenliveTitle(producer_ktitle self,
         // Effects
         QList<QGraphicsItem *> items = scene->items();
         PlainTextItem *titem = NULL;
+        QString theText = "Not found";
         for (int i = 0; i < items.count(); i++) {
             titem = dynamic_cast<PlainTextItem *>(items.at(i));
+            if (titem) {
+                theText = titem->text;
+            }
             if (titem && !titem->data(0).isNull()) {
                 int itemId = titem->data(0).toInt();
                 std::shared_ptr<TypeWriter> ptr = scene->property(QString::number(itemId).toLatin1())
@@ -1102,9 +1109,10 @@ void drawKdenliveTitle(producer_ktitle self,
                 QImage img2;
                 QMetaObject::invokeMethod(
                     qApp,
-                    [instance, &img2, position]() {
+                    [instance, &img2, position, theText]() {
                         instance->use();
                         instance->rootItem->setProperty("currentTime", position / 60 * 1000);
+                        instance->rootItem->setProperty("theText", theText);
                         instance->context->makeCurrent(instance->surface);
                         instance->renderControl->beginFrame();
                         instance->renderControl->polishItems();
