@@ -172,18 +172,18 @@ public:
     {
         if (renderControl == nullptr)
             return;
-        // qInfo() << "deleting title state instance";
-        // delete engine;
-        // qInfo() << ".1";
-        // delete component;
-        // qInfo() << ".2";
-        // delete renderControl;
-        // qInfo() << ".3";
-        // delete window;
-        // qInfo() << ".4";
+        qInfo() << "deleting title state instance";
+        delete rootItem;
+        delete component;
+        delete engine;
+        delete window;
+        delete renderControl;
+        delete fbo;
+        delete context;
+        delete surface;
 
-        // renderControl = nullptr;
-        // qInfo() << "DELETED";
+        renderControl = nullptr;
+        qInfo() << "DELETED";
     }
 
     ~TitleStateInstance() { destroy(); }
@@ -250,7 +250,25 @@ public:
         prepareLock.unlock();
     }
 
-    ~TitleState() {}
+    ~TitleState()
+    {
+        if (instance == nullptr)
+            return;
+
+        auto toRun = [this]() {
+            qInfo() << "DELELE: we are now in main thread";
+            delete this->instance;
+            this->instance = nullptr;
+        };
+
+        if (areWeGuiThread()) {
+            qInfo() << "DELELE: we are already in main";
+            toRun();
+        } else {
+            qInfo() << "DELELE: asking main thread";
+            QMetaObject::invokeMethod(qApp, toRun, Qt::BlockingQueuedConnection);
+        }
+    }
 };
 
 class ImageItem : public QGraphicsItem
