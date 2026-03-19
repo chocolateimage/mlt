@@ -86,26 +86,70 @@ bool areWeGuiThread()
     return QThread::currentThread() == qApp->thread();
 }
 
-class TitleState;
-
-class TitleStateInstance
+class TitleState
 {
 public:
+    QMutex createLock;
+    bool created{false};
+    QMutex prepareLock;
+    bool prepared{false};
+    int width;
+    int height;
     QQuickRenderControl *renderControl{nullptr};
     QQuickWindow *window{nullptr};
     QQmlEngine *engine{nullptr};
-    QQmlComponent *component{nullptr};
     QOffscreenSurface *surface{nullptr};
     QOpenGLContext *context{nullptr};
     QOpenGLFramebufferObject *fbo{nullptr};
     QQuickItem *rootItem{nullptr};
-    int width;
-    int height;
 
-    TitleStateInstance(int width, int height)
+    TitleState() {}
+
+    void safeCreate()
     {
-        this->width = width;
-        this->height = height;
+        createLock.lock();
+
+        if (created) {
+            createLock.unlock();
+            return;
+        }
+
+        auto toRun = [this]() {
+            qInfo() << "we are now in main thread";
+            this->create();
+            this->created = true;
+        };
+
+        if (areWeGuiThread()) {
+            qInfo() << "we are already in main";
+            toRun();
+        } else {
+            qInfo() << "asking main thread";
+            QMetaObject::invokeMethod(qApp, toRun, Qt::BlockingQueuedConnection);
+        }
+
+        createLock.unlock();
+
+        qInfo() << "getInstance OK2";
+    }
+
+    bool shouldPrepare()
+    {
+        prepareLock.lock();
+        if (prepared) {
+            prepareLock.unlock();
+            return false;
+        } else {
+            return true;
+        }
+    }
+
+    void prepare(int width, int height)
+    {
+        this->width = 1280;
+        this->height = 720;
+        this->prepared = false;
+        prepareLock.unlock();
     }
 
     void create()
@@ -148,8 +192,10 @@ public:
         window->setGraphicsDevice(QQuickGraphicsDevice::fromOpenGLContext(context));
         window->setRenderTarget(QQuickRenderTarget::fromOpenGLTexture(fbo->texture(), fbo->size()));
         engine = new QQmlEngine();
-        component = new QQmlComponent(engine, "/home/lukas/Programming/mlt/Main.qml");
-        rootItem = qobject_cast<QQuickItem *>(component->create());
+        QQmlComponent component = QQmlComponent(engine,
+                                                "/home/lukas/Programming/mlt/Main.qml",
+                                                QQmlComponent::PreferSynchronous);
+        rootItem = qobject_cast<QQuickItem *>(component.create());
         rootItem->setSize(QSize(width, height));
 
         rootItem->setParentItem(window->contentItem());
@@ -174,7 +220,6 @@ public:
             return;
         qInfo() << "deleting title state instance";
         delete rootItem;
-        delete component;
         delete engine;
         delete window;
         delete renderControl;
@@ -186,79 +231,14 @@ public:
         qInfo() << "DELETED";
     }
 
-    ~TitleStateInstance() { destroy(); }
-};
-
-class TitleState
-{
-public:
-    // QMap<QThread *, TitleStateInstance *> instances;
-    TitleStateInstance *instance{nullptr};
-    QMutex instancesLock;
-    QMutex prepareLock;
-    bool prepared{false};
-    int width;
-    int height;
-
-    TitleState() {}
-
-    TitleStateInstance *getInstance()
-    {
-        instancesLock.lock();
-
-        if (instance != nullptr) {
-            instancesLock.unlock();
-            return instance;
-        }
-
-        auto toRun = [this]() {
-            qInfo() << "we are now in main thread";
-            instance = new TitleStateInstance(this->width, this->height);
-            instance->create();
-        };
-
-        if (areWeGuiThread()) {
-            qInfo() << "we are already in main";
-            toRun();
-        } else {
-            qInfo() << "asking main thread";
-            QMetaObject::invokeMethod(qApp, toRun, Qt::BlockingQueuedConnection);
-        }
-
-        instancesLock.unlock();
-
-        qInfo() << "getInstance OK2";
-        return instance;
-    }
-
-    bool shouldPrepare()
-    {
-        prepareLock.lock();
-        if (prepared) {
-            prepareLock.unlock();
-            return false;
-        } else {
-            return true;
-        }
-    }
-
-    void prepare(int width, int height)
-    {
-        this->width = 1280;
-        this->height = 720;
-        this->prepared = false;
-        prepareLock.unlock();
-    }
-
     ~TitleState()
     {
-        if (instance == nullptr)
+        if (!created)
             return;
 
         auto toRun = [this]() {
             qInfo() << "DELELE: we are now in main thread";
-            delete this->instance;
-            this->instance = nullptr;
+            destroy();
         };
 
         if (areWeGuiThread()) {
@@ -1123,22 +1103,22 @@ void drawKdenliveTitle(producer_ktitle self,
 
         if (end.isNull()) {
             if (qApp->thread() != QThread::currentThread()) {
-                TitleStateInstance *instance = titleState->getInstance();
+                titleState->safeCreate();
                 QImage img2;
                 QMetaObject::invokeMethod(
                     qApp,
-                    [instance, &img2, position, theText]() {
-                        instance->use();
-                        instance->rootItem->setProperty("currentTime", position / 60 * 1000);
-                        instance->rootItem->setProperty("theText", theText);
-                        instance->context->makeCurrent(instance->surface);
-                        instance->renderControl->beginFrame();
-                        instance->renderControl->polishItems();
-                        instance->renderControl->sync();
-                        instance->renderControl->render();
-                        instance->renderControl->endFrame();
-                        img2 = instance->fbo->toImage();
-                        instance->unUse();
+                    [titleState, &img2, position, theText]() {
+                        titleState->use();
+                        titleState->rootItem->setProperty("currentTime", position / 60 * 1000);
+                        titleState->rootItem->setProperty("theText", theText);
+                        titleState->context->makeCurrent(titleState->surface);
+                        titleState->renderControl->beginFrame();
+                        titleState->renderControl->polishItems();
+                        titleState->renderControl->sync();
+                        titleState->renderControl->render();
+                        titleState->renderControl->endFrame();
+                        img2 = titleState->fbo->toImage();
+                        titleState->unUse();
                     },
                     Qt::BlockingQueuedConnection);
 
