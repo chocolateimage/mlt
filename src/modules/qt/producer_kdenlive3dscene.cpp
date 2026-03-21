@@ -135,6 +135,11 @@ View3D {    environment: SceneEnvironment {
 
             QQmlComponent component(engine);
             component.setData(qml.toUtf8(), QUrl());
+            if (component.status() == QQmlComponent::Error) {
+                qCritical() << "Error loading QML component" << jsonObj["objectType"].toString()
+                            << component.errorString();
+                continue;
+            }
             QObject *newObject = component.createWithInitialProperties(initialProperties);
             QObject *view = rootItem->findChild<QObject *>("viewNode");
             newObject->setParent(view);
