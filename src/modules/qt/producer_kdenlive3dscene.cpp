@@ -1,16 +1,19 @@
 #include "common.h"
-#include <cmath>
 #include <framework/mlt.h>
 #include <stdlib.h>
 #include <string.h>
-#include <thread>
 #include <QAnimationDriver>
 #include <QGraphicsBlurEffect>
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsEffect>
 #include <QImage>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QMutex>
 #include <QOffscreenSurface>
 #include <QOpenGLContext>
+#include <QOpenGLFramebufferObject>
 #include <QPainter>
 #include <QQmlComponent>
 #include <QQmlEngine>
@@ -19,18 +22,8 @@
 #include <QQuickRenderControl>
 #include <QQuickRenderTarget>
 #include <QQuickWindow>
+#include <QSurfaceFormat>
 #include <QThread>
-#include <qabstractanimation.h>
-#include <qmutex.h>
-#include <qnamespace.h>
-#include <qobjectdefs.h>
-#include <qoffscreensurface.h>
-#include <qopenglcontext.h>
-#include <qopenglframebufferobject.h>
-#include <qqmlcomponent.h>
-#include <qqmlengine.h>
-#include <qsurfaceformat.h>
-#include <qthread.h>
 
 bool areWeGuiThread()
 {
@@ -38,6 +31,30 @@ bool areWeGuiThread()
             << "app:" << qApp->thread();
     return QThread::currentThread() == qApp->thread();
 }
+
+QVariant jsonToVariant(const QJsonObject &json)
+{
+    QString type = json["type"].toString();
+    if (type == "nullptr" || type == "bool" || type == "int" || type == "uint" || type == "longlong"
+        || type == "ulonglong" || type == "float" || type == "double" || type == "QString"
+        || type == "QStringList" || type == "QUrl" || type == "QUuid") {
+        return QVariant::fromValue(json["value"]);
+    } else if (type == "QVector2D") {
+        return QVariant::fromValue(QVector2D(json["x"].toDouble(), json["y"].toDouble()));
+    } else if (type == "QVector3D") {
+        return QVariant::fromValue(
+            QVector3D(json["x"].toDouble(), json["y"].toDouble(), json["z"].toDouble()));
+    } else if (type == "QColor") {
+        return QVariant::fromValue(QColor(json["red"].toInt(),
+                                          json["green"].toInt(),
+                                          json["blue"].toInt(),
+                                          json["alpha"].toInt()));
+    } else {
+        qWarning() << "Unknown variant type" << type;
+        return QVariant::fromValue(nullptr);
+    }
+}
+
 class TitleState
 {
 public:
@@ -53,6 +70,7 @@ public:
     QOpenGLContext *context{nullptr};
     QOpenGLFramebufferObject *fbo{nullptr};
     QQuickItem *rootItem{nullptr};
+    QString data = "";
 
     TitleState() {}
 
@@ -85,6 +103,43 @@ public:
         this->width = width;
         this->height = height;
         return changed;
+    }
+
+    void createAndLoadComponent()
+    {
+        QQmlComponent component(engine);
+        component.setData(R"(import QtQuick3D
+View3D {    environment: SceneEnvironment {
+        antialiasingMode: SceneEnvironment.MSAA
+        antialiasingQuality: SceneEnvironment.VeryHigh
+    }
+        Node {objectName: "viewNode"}})",
+                          QUrl());
+
+        rootItem = qobject_cast<QQuickItem *>(component.create());
+
+        QJsonDocument doc = QJsonDocument::fromJson(data.toUtf8());
+        QJsonObject obj = doc.object();
+        QJsonArray objects = obj["objects"].toArray();
+
+        for (auto jsonObjRef : objects) {
+            QJsonObject jsonObj = jsonObjRef.toObject();
+            QString qml = jsonObj["qml"].toString();
+            QJsonObject propertiesMap = jsonObj["properties"].toObject();
+            QVariantMap initialProperties;
+
+            for (auto propertyKey : propertiesMap.keys()) {
+                QJsonObject propertyObj = propertiesMap[propertyKey].toObject();
+                initialProperties[propertyKey] = jsonToVariant(propertyObj);
+            }
+
+            QQmlComponent component(engine);
+            component.setData(qml.toUtf8(), QUrl());
+            QObject *newObject = component.createWithInitialProperties(initialProperties);
+            QObject *view = rootItem->findChild<QObject *>("viewNode");
+            newObject->setParent(view);
+            newObject->setProperty("parent", QVariant::fromValue(view));
+        }
     }
 
     void _create()
@@ -127,10 +182,7 @@ public:
         window->setGraphicsDevice(QQuickGraphicsDevice::fromOpenGLContext(context));
         window->setRenderTarget(QQuickRenderTarget::fromOpenGLTexture(fbo->texture(), fbo->size()));
         engine = new QQmlEngine();
-        QQmlComponent component = QQmlComponent(engine,
-                                                "/home/lukas/Programming/mlt/Main.qml",
-                                                QQmlComponent::PreferSynchronous);
-        rootItem = qobject_cast<QQuickItem *>(component.create());
+        createAndLoadComponent();
         rootItem->setSize(QSize(width, height));
 
         rootItem->setParentItem(window->contentItem());
@@ -183,6 +235,7 @@ public:
 
         renderControl = nullptr;
         created = false;
+        data = "";
         qInfo() << "DELETED";
     }
 
@@ -216,8 +269,23 @@ static int producer_get_image(mlt_frame frame,
 
     if (qApp->thread() != QThread::currentThread()) {
         state->prepareLock.lock();
-        if (state->setSize(smallWidth, smallHeight)) {
+
+        bool forceReload = false;
+        if (mlt_properties_get_int(producerProps, "force_reload") > 0) {
+            qInfo() << "FORCE RELOADING!!!!";
+            forceReload = true;
+            mlt_properties_set_int(producerProps, "force_reload", 0);
+        }
+
+        if (state->setSize(smallWidth, smallHeight) || forceReload) {
             state->destroy();
+        }
+        if (state->data == "") {
+            state->data = mlt_properties_get(producerProps, "data");
+            if (state->data == "") {
+                state->prepareLock.unlock();
+                return 0;
+            }
         }
 
         state->create();
@@ -225,11 +293,9 @@ static int producer_get_image(mlt_frame frame,
         QImage img2;
         QMetaObject::invokeMethod(
             qApp,
-            [state, &img2, position]() {
+            [state, &img2, position, fps]() {
                 state->use();
-                state->rootItem->setProperty("currentTime", position / 60 * 1000);
-                state->rootItem->setProperty("theText", "Example");
-                state->context->makeCurrent(state->surface);
+                state->rootItem->setProperty("currentTime", (position / fps) * 1000);
                 state->renderControl->beginFrame();
                 state->renderControl->polishItems();
                 state->renderControl->sync();
@@ -240,7 +306,7 @@ static int producer_get_image(mlt_frame frame,
             },
             Qt::BlockingQueuedConnection);
 
-        QImage img(*buffer, *width, *height, QImage::Format_ARGB32);
+        QImage img(*buffer, *width, *height, QImage::Format_RGBA8888);
         img.fill(Qt::transparent);
         QPainter painter(&img);
         painter.drawImage(QRectF(0, 0, *width, *height), img2);
