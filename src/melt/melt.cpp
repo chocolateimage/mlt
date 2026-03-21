@@ -36,6 +36,7 @@
 #endif
 
 #include <framework/mlt.h>
+#include <QCoreApplication>
 
 #if (defined(__APPLE__) || defined(_WIN32) || defined(HAVE_SDL2)) && !defined(MELT_NOSDL)
 #define SDL_MAIN_HANDLED
@@ -71,11 +72,14 @@ static void fire_jack_seek_event(mlt_properties jack, int position)
 static void transport_action(mlt_producer producer, char *value)
 {
     mlt_properties properties = MLT_PRODUCER_PROPERTIES(producer);
-    mlt_multitrack multitrack = mlt_properties_get_data(properties, "multitrack", NULL);
-    mlt_consumer consumer = mlt_properties_get_data(properties, "transport_consumer", NULL);
-    mlt_properties jack = mlt_properties_get_data(MLT_CONSUMER_PROPERTIES(consumer),
-                                                  "jack_filter",
-                                                  NULL);
+    mlt_multitrack multitrack = (mlt_multitrack) mlt_properties_get_data(properties,
+                                                                         "multitrack",
+                                                                         NULL);
+    mlt_consumer consumer = (mlt_consumer) mlt_properties_get_data(properties,
+                                                                   "transport_consumer",
+                                                                   NULL);
+    mlt_properties jack = (mlt_properties)
+        mlt_properties_get_data(MLT_CONSUMER_PROPERTIES(consumer), "jack_filter", NULL);
     mlt_position position = producer ? mlt_producer_position(producer) : 0;
 
     mlt_properties_set_int(properties, "stats_off", 1);
@@ -216,14 +220,12 @@ static void transport_action(mlt_producer producer, char *value)
 
 static void on_jack_started(mlt_properties owner, mlt_consumer consumer, mlt_event_data event_data)
 {
-    mlt_producer producer = mlt_properties_get_data(MLT_CONSUMER_PROPERTIES(consumer),
-                                                    "transport_producer",
-                                                    NULL);
+    mlt_producer producer = (mlt_producer)
+        mlt_properties_get_data(MLT_CONSUMER_PROPERTIES(consumer), "transport_producer", NULL);
     if (producer) {
         if (mlt_producer_get_speed(producer) != 0) {
-            mlt_properties jack = mlt_properties_get_data(MLT_CONSUMER_PROPERTIES(consumer),
-                                                          "jack_filter",
-                                                          NULL);
+            mlt_properties jack = (mlt_properties)
+                mlt_properties_get_data(MLT_CONSUMER_PROPERTIES(consumer), "jack_filter", NULL);
             mlt_events_fire(jack, "jack-stop", mlt_event_data_none());
         } else {
             mlt_position position = mlt_event_data_to_int(event_data);
@@ -237,9 +239,8 @@ static void on_jack_started(mlt_properties owner, mlt_consumer consumer, mlt_eve
 
 static void on_jack_stopped(mlt_properties owner, mlt_consumer consumer, mlt_event_data event_data)
 {
-    mlt_producer producer = mlt_properties_get_data(MLT_CONSUMER_PROPERTIES(consumer),
-                                                    "transport_producer",
-                                                    NULL);
+    mlt_producer producer = (mlt_producer)
+        mlt_properties_get_data(MLT_CONSUMER_PROPERTIES(consumer), "transport_producer", NULL);
     if (producer) {
         mlt_position position = mlt_event_data_to_int(event_data);
         mlt_producer_set_speed(producer, 0);
@@ -278,7 +279,12 @@ static mlt_consumer create_consumer(mlt_profile profile, char *id)
     mlt_consumer consumer = mlt_factory_consumer(profile, myid, arg);
     if (consumer != NULL) {
         mlt_properties properties = MLT_CONSUMER_PROPERTIES(consumer);
-        mlt_properties_set_data(properties, "transport_callback", transport_action, 0, NULL, NULL);
+        mlt_properties_set_data(properties,
+                                "transport_callback",
+                                (void *) transport_action,
+                                0,
+                                NULL,
+                                NULL);
     }
     free(myid);
     return consumer;
@@ -318,7 +324,7 @@ static int load_consumer(mlt_consumer *consumer, mlt_profile profile, int argc, 
 
         if (*consumer)
             mlt_consumer_close(*consumer);
-        *consumer = create_consumer(profile, (qglsl ? "qglsl" : "multi"));
+        *consumer = create_consumer(profile, (char *) (qglsl ? "qglsl" : "multi"));
         mlt_properties properties = MLT_CONSUMER_PROPERTIES(*consumer);
         for (i = 1; i < argc; i++) {
             if (!strcmp(argv[i], "-consumer") && argv[i + 1]) {
@@ -377,7 +383,7 @@ static void event_handling(mlt_producer producer, mlt_consumer consumer)
         case SDL_KEYDOWN:
 #if SDL_MAJOR_VERSION == 2
             if (event.key.keysym.sym < 0x80 && event.key.keysym.sym > 0) {
-                char keyboard[2] = {event.key.keysym.sym, 0};
+                char keyboard[2] = {(char) event.key.keysym.sym, 0};
                 if (event.key.keysym.mod & KMOD_SHIFT)
                     keyboard[0] += 'A' - 'a';
                 transport_action(producer, keyboard);
@@ -456,13 +462,17 @@ static void transport(mlt_producer producer, mlt_consumer consumer)
             }
 
             if (value != -1) {
-                char string[2] = {value, 0};
+                char string[2] = {(char) value, 0};
                 transport_action(producer, string);
             }
 
 #if defined(SDL_MAJOR_VERSION)
             event_handling(producer, consumer);
 #endif
+
+            if (qApp != nullptr) {
+                QCoreApplication::processEvents();
+            }
 
             if (!silent && mlt_properties_get_int(properties, "stats_off") == 0) {
                 if (progress) {
@@ -483,8 +493,7 @@ static void transport(mlt_producer producer, mlt_consumer consumer)
                 fflush(stderr);
             }
 
-            if (silent || progress)
-                nanosleep(&tm, NULL);
+            usleep(500);
         }
 
         if (!silent)
@@ -572,7 +581,7 @@ static int is_service_hidden(mlt_repository repo, mlt_service_type type, const c
     metadata = mlt_repository_metadata(repo, type, service_name);
 
     if (metadata) {
-        tags = mlt_properties_get_data(metadata, "tags", NULL);
+        tags = (mlt_properties) mlt_properties_get_data(metadata, "tags", NULL);
         if (tags) {
             int k;
             for (k = 0; k < mlt_properties_count(tags); k++) {
@@ -642,7 +651,7 @@ static void query_profiles()
 static void query_profile(const char *id)
 {
     mlt_properties profiles = mlt_profile_list();
-    mlt_properties profile = mlt_properties_get_data(profiles, id, NULL);
+    mlt_properties profile = (mlt_properties) mlt_properties_get_data(profiles, id, NULL);
     if (profile) {
         char *s = mlt_properties_serialise_yaml(profile);
         fprintf(stdout, "%s", s);
@@ -669,7 +678,7 @@ static void query_presets()
 static void query_preset(const char *id)
 {
     mlt_properties presets = mlt_repository_presets();
-    mlt_properties preset = mlt_properties_get_data(presets, id, NULL);
+    mlt_properties preset = (mlt_properties) mlt_properties_get_data(presets, id, NULL);
     if (preset) {
         char *s = mlt_properties_serialise_yaml(preset);
         fprintf(stdout, "%s", s);
@@ -839,25 +848,31 @@ int main(int argc, char **argv)
                     query_metadata(repo,
                                    mlt_service_consumer_type,
                                    "consumer",
-                                   strchr(pname, '=') + 1);
+                                   (char *) strchr(pname, '=') + 1);
                 else if (!strncmp(pname, "filter=", 7))
-                    query_metadata(repo, mlt_service_filter_type, "filter", strchr(pname, '=') + 1);
+                    query_metadata(repo,
+                                   mlt_service_filter_type,
+                                   "filter",
+                                   (char *) strchr(pname, '=') + 1);
                 else if (!strncmp(pname, "link=", 5))
-                    query_metadata(repo, mlt_service_link_type, "link", strchr(pname, '=') + 1);
+                    query_metadata(repo,
+                                   mlt_service_link_type,
+                                   "link",
+                                   (char *) strchr(pname, '=') + 1);
                 else if (!strncmp(pname, "producer=", 9))
                     query_metadata(repo,
                                    mlt_service_producer_type,
                                    "producer",
-                                   strchr(pname, '=') + 1);
+                                   (char *) strchr(pname, '=') + 1);
                 else if (!strncmp(pname, "transition=", 11))
                     query_metadata(repo,
                                    mlt_service_transition_type,
                                    "transition",
-                                   strchr(pname, '=') + 1);
+                                   (char *) strchr(pname, '=') + 1);
                 else if (!strncmp(pname, "profile=", 8))
-                    query_profile(strchr(pname, '=') + 1);
+                    query_profile((char *) strchr(pname, '=') + 1);
                 else if (!strncmp(pname, "preset=", 7))
-                    query_preset(strchr(pname, '=') + 1);
+                    query_preset((char *) strchr(pname, '=') + 1);
                 else
                     goto query_all;
             } else {
@@ -887,12 +902,13 @@ int main(int argc, char **argv)
             return error;
         } else if (!strcmp(argv[i], "-version") || !strcmp(argv[i], "--version")) {
             fprintf(stdout,
-                    "%s " VERSION "\n"
+                    "%s %s\n"
                     "Copyright (C) 2002-2026 Meltytech, LLC\n"
                     "<https://www.mltframework.org/>\n"
                     "This is free software; see the source for copying conditions.  There is NO\n"
                     "warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.\n",
-                    basename(argv[0]));
+                    basename(argv[0]),
+                    VERSION);
             return error;
         } else if (!strcmp(argv[i], "-debug")) {
             mlt_log_set_level(MLT_LOG_DEBUG);
@@ -979,9 +995,8 @@ int main(int argc, char **argv)
         // Generate an automatic profile if needed.
         if ((consumer && backup_profile && !backup_profile->is_explicit)
             || (!consumer && !profile->is_explicit)) {
-            mlt_producer first_producer = mlt_properties_get_data(MLT_PRODUCER_PROPERTIES(melt),
-                                                                  "first_producer",
-                                                                  NULL);
+            mlt_producer first_producer = (mlt_producer)
+                mlt_properties_get_data(MLT_PRODUCER_PROPERTIES(melt), "first_producer", NULL);
             mlt_profile_from_producer(profile, first_producer);
             mlt_consumer melt_consumer = MLT_CONSUMER(
                 mlt_service_consumer(MLT_PRODUCER_SERVICE(melt)));
@@ -1009,7 +1024,7 @@ int main(int argc, char **argv)
                     MLT_CONSUMER_PROPERTIES(consumer)); // because we explicitly close it
                 mlt_properties_set_data(MLT_CONSUMER_PROPERTIES(consumer),
                                         "transport_callback",
-                                        transport_action,
+                                        (void *) transport_action,
                                         0,
                                         NULL,
                                         NULL);
@@ -1074,7 +1089,9 @@ int main(int argc, char **argv)
 
             if (is_consumer_explicit) {
                 // Apply group settings
-                mlt_properties group = mlt_properties_get_data(melt_props, "group", 0);
+                mlt_properties group = (mlt_properties) mlt_properties_get_data(melt_props,
+                                                                                "group",
+                                                                                0);
                 mlt_properties_inherit(properties, group);
             }
 

@@ -1277,7 +1277,7 @@ static void consumer_read_ahead_stop(mlt_consumer self)
         pthread_mutex_unlock(&priv->put_mutex);
 
         // Join the thread
-        mlt_thread_join(self);
+        // mlt_thread_join(self);
 
         // Destroy the frame queue mutex
         pthread_mutex_destroy(&priv->queue_mutex);
@@ -1320,9 +1320,9 @@ static void consumer_work_stop(mlt_consumer self)
         pthread_mutex_unlock(&priv->done_mutex);
 
         // Join the threads
-        pthread_t *thread;
-        while ((thread = mlt_deque_pop_back(priv->worker_threads)))
-            pthread_join(*thread, NULL);
+        // pthread_t *thread;
+        // while ((thread = mlt_deque_pop_back(priv->worker_threads)))
+        //     pthread_join(*thread, NULL);
 
         // Deallocate the array of threads
         free(priv->threads);

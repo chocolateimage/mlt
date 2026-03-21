@@ -1,8 +1,8 @@
-add_executable(melt melt.c io.c io.h)
+add_executable(melt melt.cpp io.c io.h)
 
 target_compile_options(melt PRIVATE ${MLT_COMPILE_OPTIONS})
 
-target_link_libraries(melt PRIVATE mlt Threads::Threads)
+target_link_libraries(melt PRIVATE mlt Threads::Threads Qt6::Core)
 
 target_compile_definitions(melt PRIVATE VERSION="${MLT_VERSION}")
 

@@ -58,24 +58,7 @@ bool createQApplicationIfNeeded(mlt_service service)
             mlt_properties_set(mlt_global_properties(), "qt_argv", "MLT");
         static int argc = 1;
         static char *argv[] = {mlt_properties_get(mlt_global_properties(), "qt_argv")};
-        qInfo() << "creating thread";
-        QThread *eventLoopThread = new QThread();
-        QObject::connect(eventLoopThread, &QThread::started, []() {
-            qInfo() << "creating QApplication";
-            QApplication *app = new QApplication(argc, argv);
-            qInfo() << "created application";
-            qApplicationCreated = true;
-            qInfo() << "executing";
-            app->exec();
-            qInfo() << "somehow done executing";
-        });
-        qInfo() << "starting thread";
-        eventLoopThread->start();
-
-        qInfo() << "waiting for application to be created";
-        while (!qApplicationCreated) {
-        }
-        qInfo() << "ok now";
+        QApplication *app = new QApplication(argc, argv);
         const char *localename = mlt_properties_get_lcnumeric(MLT_SERVICE_PROPERTIES(service));
         QLocale::setDefault(QLocale(localename));
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
