@@ -79,178 +79,6 @@ Q_DECLARE_METATYPE(std::shared_ptr<TypeWriter>);
 // Private Constants
 static const double PI = 3.14159265358979323846;
 
-bool areWeGuiThread()
-{
-    qInfo() << "checking if we are in gui thread. current:" << QThread::currentThread()
-            << "app:" << qApp->thread();
-    return QThread::currentThread() == qApp->thread();
-}
-
-class TitleState
-{
-public:
-    QMutex createLock;
-    bool created{false};
-    QMutex prepareLock;
-    bool prepared{false};
-    int width;
-    int height;
-    QQuickRenderControl *renderControl{nullptr};
-    QQuickWindow *window{nullptr};
-    QQmlEngine *engine{nullptr};
-    QOffscreenSurface *surface{nullptr};
-    QOpenGLContext *context{nullptr};
-    QOpenGLFramebufferObject *fbo{nullptr};
-    QQuickItem *rootItem{nullptr};
-
-    TitleState() {}
-
-    void safeCreate()
-    {
-        createLock.lock();
-
-        if (created) {
-            createLock.unlock();
-            return;
-        }
-
-        auto toRun = [this]() {
-            qInfo() << "we are now in main thread";
-            this->create();
-            this->created = true;
-        };
-
-        if (areWeGuiThread()) {
-            qInfo() << "we are already in main";
-            toRun();
-        } else {
-            qInfo() << "asking main thread";
-            QMetaObject::invokeMethod(qApp, toRun, Qt::BlockingQueuedConnection);
-        }
-
-        createLock.unlock();
-
-        qInfo() << "getInstance OK2";
-    }
-
-    bool shouldPrepare()
-    {
-        prepareLock.lock();
-        if (prepared) {
-            prepareLock.unlock();
-            return false;
-        } else {
-            return true;
-        }
-    }
-
-    void prepare(int width, int height)
-    {
-        this->width = 1280;
-        this->height = 720;
-        this->prepared = false;
-        prepareLock.unlock();
-    }
-
-    void create()
-    {
-        if (renderControl != nullptr)
-            return;
-
-        qInfo() << "create thread" << QThread::currentThread();
-        QSurfaceFormat format;
-        format.setRenderableType(QSurfaceFormat::OpenGL);
-        format.setDepthBufferSize(24);
-        format.setStencilBufferSize(8);
-        format.setSwapBehavior(QSurfaceFormat::SingleBuffer);
-
-        context = new QOpenGLContext();
-        context->setFormat(format);
-        context->create();
-
-        surface = new QOffscreenSurface();
-        surface->setFormat(context->format());
-        surface->create();
-
-        if (!surface->isValid()) {
-            qInfo() << "surface NOT VALID!!!!!!!!!";
-            return;
-        }
-
-        if (!context->makeCurrent(surface)) {
-            qInfo() << "makeCurrent FAILED!!!!!!!!!";
-            return;
-        }
-
-        fbo = new QOpenGLFramebufferObject(QSize(width, height),
-                                           QOpenGLFramebufferObject::CombinedDepthStencil);
-
-        renderControl = new QQuickRenderControl();
-        window = new QQuickWindow(renderControl);
-        window->setColor(Qt::transparent);
-        window->setGeometry(0, 0, width, height);
-        window->setGraphicsDevice(QQuickGraphicsDevice::fromOpenGLContext(context));
-        window->setRenderTarget(QQuickRenderTarget::fromOpenGLTexture(fbo->texture(), fbo->size()));
-        engine = new QQmlEngine();
-        QQmlComponent component = QQmlComponent(engine,
-                                                "/home/lukas/Programming/mlt/Main.qml",
-                                                QQmlComponent::PreferSynchronous);
-        rootItem = qobject_cast<QQuickItem *>(component.create());
-        rootItem->setSize(QSize(width, height));
-
-        rootItem->setParentItem(window->contentItem());
-        // component->setParent(renderControl->window()->contentItem());
-
-        if (!renderControl->initialize()) {
-            qInfo() << "renderControl FAILED!!!!!!!!!";
-            return;
-        }
-
-        context->doneCurrent();
-        qInfo() << "create()-d";
-    }
-
-    void use() { context->makeCurrent(surface); }
-
-    void unUse() { context->doneCurrent(); }
-
-    void destroy()
-    {
-        if (renderControl == nullptr)
-            return;
-        qInfo() << "deleting title state instance";
-        delete rootItem;
-        delete engine;
-        delete window;
-        delete renderControl;
-        delete fbo;
-        delete context;
-        delete surface;
-
-        renderControl = nullptr;
-        qInfo() << "DELETED";
-    }
-
-    ~TitleState()
-    {
-        if (!created)
-            return;
-
-        auto toRun = [this]() {
-            qInfo() << "DELELE: we are now in main thread";
-            destroy();
-        };
-
-        if (areWeGuiThread()) {
-            qInfo() << "DELELE: we are already in main";
-            toRun();
-        } else {
-            qInfo() << "DELELE: asking main thread";
-            QMetaObject::invokeMethod(qApp, toRun, Qt::BlockingQueuedConnection);
-        }
-    }
-};
-
 class ImageItem : public QGraphicsItem
 {
 public:
@@ -970,15 +798,10 @@ int initTitleProducer(producer_ktitle self)
     }
 #endif
     qInfo() << "==== initTitleProducer as thread" << QThread::currentThread();
-    self->state_class = (uint8_t *) new TitleState();
     return true;
 }
 
-void closeTitleProducer(producer_ktitle self)
-{
-    TitleState *titleState = (TitleState *) self->state_class;
-    delete titleState;
-}
+void closeTitleProducer(producer_ktitle self) {}
 
 void drawKdenliveTitle(producer_ktitle self,
                        mlt_frame frame,
@@ -995,11 +818,6 @@ void drawKdenliveTitle(producer_ktitle self,
 
     // Obtain properties of frame
     mlt_properties properties = MLT_FRAME_PROPERTIES(frame);
-
-    TitleState *titleState = (TitleState *) self->state_class;
-    if (titleState->shouldPrepare()) {
-        titleState->prepare(width, height);
-    }
 
     pthread_mutex_lock(&self->mutex);
 
@@ -1103,26 +921,6 @@ void drawKdenliveTitle(producer_ktitle self,
 
         if (end.isNull()) {
             if (qApp->thread() != QThread::currentThread()) {
-                titleState->safeCreate();
-                QImage img2;
-                QMetaObject::invokeMethod(
-                    qApp,
-                    [titleState, &img2, position, theText]() {
-                        titleState->use();
-                        titleState->rootItem->setProperty("currentTime", position / 60 * 1000);
-                        titleState->rootItem->setProperty("theText", theText);
-                        titleState->context->makeCurrent(titleState->surface);
-                        titleState->renderControl->beginFrame();
-                        titleState->renderControl->polishItems();
-                        titleState->renderControl->sync();
-                        titleState->renderControl->render();
-                        titleState->renderControl->endFrame();
-                        img2 = titleState->fbo->toImage();
-                        titleState->unUse();
-                    },
-                    Qt::BlockingQueuedConnection);
-
-                p1.drawImage(QRectF(0, 0, width, height), img2);
             } else {
                 qInfo() << "is gui thread.. not rendering";
             }

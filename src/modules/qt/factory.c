@@ -67,6 +67,10 @@ extern mlt_producer producer_qtext_init(mlt_profile profile,
                                         mlt_service_type type,
                                         const char *id,
                                         char *arg);
+extern mlt_producer producer_kdenlive3dscene_init(mlt_profile profile,
+                                                  mlt_service_type type,
+                                                  const char *id,
+                                                  char *arg);
 extern mlt_producer producer_kdenlivetitle_init(mlt_profile profile,
                                                 mlt_service_type type,
                                                 const char *id,
@@ -131,6 +135,7 @@ MLT_QT_MODULE_EXPORT MLT_REPOSITORY
     MLT_REGISTER(mlt_service_filter_type, "qtext", filter_qtext_init);
     MLT_REGISTER(mlt_service_producer_type, "qimage", producer_qimage_init);
     MLT_REGISTER(mlt_service_producer_type, "qtext", producer_qtext_init);
+    MLT_REGISTER(mlt_service_producer_type, "kdenlive3dscene", producer_kdenlive3dscene_init);
     MLT_REGISTER(mlt_service_producer_type, "kdenlivetitle", producer_kdenlivetitle_init);
     MLT_REGISTER(mlt_service_transition_type, "qtblend", transition_qtblend_init);
     MLT_REGISTER(mlt_service_filter_type, "qtblend_mode", filter_qtblend_mode_init);
@@ -177,6 +182,10 @@ MLT_QT_MODULE_EXPORT MLT_REPOSITORY
                           "kdenlivetitle",
                           metadata,
                           "producer_kdenlivetitle.yml");
+    MLT_REGISTER_METADATA(mlt_service_producer_type,
+                          "kdenlive3dscene",
+                          metadata,
+                          "producer_kdenlive3dscene.yml");
 #ifdef GPL3
     MLT_REGISTER(mlt_service_transition_type, "vqm", transition_vqm_init);
     MLT_REGISTER_METADATA(mlt_service_transition_type, "vqm", metadata, "transition_vqm.yml");

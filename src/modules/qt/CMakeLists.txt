@@ -34,6 +34,7 @@ function(mlt_add_qt_module ARG_TARGET)
       graph.cpp graph.h
       kdenlivegraphics.cpp
       kdenlivetitle_wrapper.cpp
+      producer_kdenlive3dscene.cpp
       producer_kdenlivetitle.c
       producer_qimage.c
       producer_qtext.cpp
@@ -127,6 +128,7 @@ function(mlt_add_qt_module ARG_TARGET)
       filter_qtcrop.yml
       filter_qtext.yml
       filter_typewriter.yml
+      producer_kdenlive3dscene.yml
       producer_kdenlivetitle.yml
       producer_qimage.yml
       producer_qtext.yml

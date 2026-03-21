@@ -1,0 +1,9 @@
+schema_version: 0.1
+type: producer
+identifier: kdenlive3dscene
+title: Kdenlive 3D Scene
+version: 5
+license: LGPLv2.1
+language: en
+tags:
+  - Video
