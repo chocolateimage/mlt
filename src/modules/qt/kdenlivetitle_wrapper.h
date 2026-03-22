@@ -34,7 +34,6 @@ struct producer_ktitle_s
     uint8_t *rgba_image;
     uint8_t *current_image;
     uint8_t *current_alpha;
-    uint8_t *state_class;
     mlt_image_format format;
     int current_width;
     int current_height;
@@ -46,8 +45,7 @@ typedef struct producer_ktitle_s *producer_ktitle;
 
 extern void drawKdenliveTitle(
     producer_ktitle self, mlt_frame frame, mlt_image_format format, int, int, double, int);
-extern int initTitleProducer(producer_ktitle self);
-extern void closeTitleProducer(producer_ktitle self);
+extern int initTitleProducer(mlt_producer producer);
 
 #ifdef __cplusplus
 }

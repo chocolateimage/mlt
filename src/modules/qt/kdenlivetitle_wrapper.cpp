@@ -45,31 +45,9 @@
 #include <QRectF>
 #include <QWidget>
 
-#include <QAnimationDriver>
 #include <QGraphicsBlurEffect>
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsEffect>
-#include <QOffscreenSurface>
-#include <QOpenGLContext>
-#include <QQmlComponent>
-#include <QQmlEngine>
-#include <QQuickGraphicsDevice>
-#include <QQuickItem>
-#include <QQuickRenderControl>
-#include <QQuickRenderTarget>
-#include <QQuickWindow>
-#include <QThread>
-#include <qabstractanimation.h>
-#include <qmutex.h>
-#include <qnamespace.h>
-#include <qobjectdefs.h>
-#include <qoffscreensurface.h>
-#include <qopenglcontext.h>
-#include <qopenglframebufferobject.h>
-#include <qqmlcomponent.h>
-#include <qqmlengine.h>
-#include <qsurfaceformat.h>
-#include <qthread.h>
 
 #include <memory>
 
@@ -161,7 +139,6 @@ void blur(QImage &image, int radius)
 class PlainTextItem : public QGraphicsItem
 {
 public:
-    QString text;
     PlainTextItem(QString text,
                   QFont font,
                   double width,
@@ -185,7 +162,6 @@ public:
         m_align = align;
         m_width = width;
         m_tabWidth = tabWidth;
-        this->text = text;
         updateText(text);
     }
 
@@ -780,9 +756,9 @@ void loadFromXml(producer_ktitle self,
     return;
 }
 
-int initTitleProducer(producer_ktitle self)
+int initTitleProducer(mlt_producer producer)
 {
-    if (!createQApplicationIfNeeded(MLT_PRODUCER_SERVICE(&self->parent))) {
+    if (!createQApplicationIfNeeded(MLT_PRODUCER_SERVICE(producer))) {
         return false;
     }
 #if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
@@ -797,11 +773,8 @@ int initTitleProducer(producer_ktitle self)
         qRegisterMetaType<std::shared_ptr<TypeWriter>>();
     }
 #endif
-    qInfo() << "==== initTitleProducer as thread" << QThread::currentThread();
     return true;
 }
-
-void closeTitleProducer(producer_ktitle self) {}
 
 void drawKdenliveTitle(producer_ktitle self,
                        mlt_frame frame,
@@ -834,7 +807,7 @@ void drawKdenliveTitle(producer_ktitle self,
         mlt_properties_set_int(producer_props, "force_reload", 0);
     }
     int image_size = width * height * 4;
-    if (self->current_image == NULL || animated || true) {
+    if (self->current_image == NULL || animated) {
         // restore QGraphicsScene
         QGraphicsScene *scene = static_cast<QGraphicsScene *>(
             mlt_properties_get_data(producer_props, "qscene", NULL));
@@ -889,12 +862,8 @@ void drawKdenliveTitle(producer_ktitle self,
         // Effects
         QList<QGraphicsItem *> items = scene->items();
         PlainTextItem *titem = NULL;
-        QString theText = "Not found";
         for (int i = 0; i < items.count(); i++) {
             titem = dynamic_cast<PlainTextItem *>(items.at(i));
-            if (titem) {
-                theText = titem->text;
-            }
             if (titem && !titem->data(0).isNull()) {
                 int itemId = titem->data(0).toInt();
                 std::shared_ptr<TypeWriter> ptr = scene->property(QString::number(itemId).toLatin1())
@@ -920,10 +889,7 @@ void drawKdenliveTitle(producer_ktitle self,
         mlt_position anim_out = mlt_properties_get_position(producer_props, "_animation_out");
 
         if (end.isNull()) {
-            if (qApp->thread() != QThread::currentThread()) {
-            } else {
-                qInfo() << "is gui thread.. not rendering";
-            }
+            scene->render(&p1, source, start, Qt::IgnoreAspectRatio);
         } else if (position > anim_out) {
             scene->render(&p1, source, end, Qt::IgnoreAspectRatio);
         } else {
