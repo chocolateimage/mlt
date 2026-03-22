@@ -20,6 +20,7 @@
 #include <QApplication>
 #include <QImageReader>
 #include <QLocale>
+#include <QQuickWindow>
 #include <QThread>
 #include <QTimer>
 #include <qobject.h>
@@ -34,6 +35,7 @@ bool qApplicationCreated = false;
 bool createQApplicationIfNeeded(mlt_service service)
 {
     if (!qApp) {
+        QQuickWindow::setGraphicsApi(QSGRendererInterface::OpenGL);
 #if defined(Q_OS_WIN) && defined(NODEPLOY)
         QCoreApplication::addLibraryPath(QString(mlt_environment("MLT_APPDIR"))
                                          + QStringLiteral("/bin"));
