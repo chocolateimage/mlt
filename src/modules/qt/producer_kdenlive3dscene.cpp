@@ -55,6 +55,26 @@ QVariant jsonToVariant(const QJsonObject &json)
     }
 }
 
+QObject *traverseQObjectByProperty(QObject *object, const QString &property)
+{
+    auto split = property.split(".");
+    QObject *current = object;
+
+    while (split.size() > 1) {
+        QString name = split.takeFirst();
+        current = current->findChild<QObject *>(name);
+        if (current == nullptr)
+            return current;
+    }
+
+    return current;
+}
+
+QString getPropNameFromProperty(const QString &property)
+{
+    return property.split(".").last();
+}
+
 class TitleState
 {
 public:
@@ -129,6 +149,8 @@ View3D {    environment: SceneEnvironment {
             QVariantMap initialProperties;
 
             for (auto propertyKey : propertiesMap.keys()) {
+                if (propertyKey.contains("."))
+                    continue;
                 QJsonObject propertyObj = propertiesMap[propertyKey].toObject();
                 initialProperties[propertyKey] = jsonToVariant(propertyObj);
             }
@@ -141,6 +163,17 @@ View3D {    environment: SceneEnvironment {
                 continue;
             }
             QObject *newObject = component.createWithInitialProperties(initialProperties);
+
+            for (auto propertyKey : propertiesMap.keys()) {
+                if (!propertyKey.contains("."))
+                    continue;
+
+                QJsonObject propertyObj = propertiesMap[propertyKey].toObject();
+                QObject *obj = traverseQObjectByProperty(newObject, propertyKey);
+                QString propName = getPropNameFromProperty(propertyKey);
+                obj->setProperty(qPrintable(propName), jsonToVariant(propertyObj));
+            }
+
             QObject *view = rootItem->findChild<QObject *>("viewNode");
             newObject->setParent(view);
             newObject->setProperty("parent", QVariant::fromValue(view));
