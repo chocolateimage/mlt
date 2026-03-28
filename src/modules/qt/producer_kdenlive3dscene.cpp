@@ -33,7 +33,7 @@ class D3Keyframe
 public:
     double position;
     QVariant value;
-    QEasingCurve::Type curve;
+    QEasingCurve curve;
 };
 
 class D3PropertyTrack
@@ -291,8 +291,8 @@ View3D {    environment: SceneEnvironment {
                             D3Keyframe *keyframe = new D3Keyframe();
                             keyframe->position = keyframeJson["position"].toDouble();
                             keyframe->value = jsonToVariant(keyframeJson["value"].toObject());
-                            keyframe->curve = static_cast<QEasingCurve::Type>(
-                                keyframeJson["curve"].toInt());
+                            keyframe->curve = QEasingCurve(
+                                static_cast<QEasingCurve::Type>(keyframeJson["curve"].toInt()));
                             propertyTrack->keyframes.append(keyframe);
                         }
 
@@ -334,8 +334,7 @@ View3D {    environment: SceneEnvironment {
                     mappedTime = std::clamp(mappedTime, 0.0, 1.0);
                 }
 
-                QEasingCurve easingCurve(a->curve);
-                mappedTime = easingCurve.valueForProgress(mappedTime);
+                mappedTime = a->curve.valueForProgress(mappedTime);
 
                 auto innerObject = traverseQObjectByProperty(objectTrack->object,
                                                              propertyTrack->property);
@@ -438,6 +437,9 @@ View3D {    environment: SceneEnvironment {
         delete fbo;
         delete context;
         delete surface;
+
+        qDeleteAll(objectTracks);
+        objectTracks.clear();
 
         renderControl = nullptr;
         created = false;
