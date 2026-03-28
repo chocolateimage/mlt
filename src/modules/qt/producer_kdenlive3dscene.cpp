@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <QAnimationDriver>
+#include <QEasingCurve>
 #include <QGraphicsBlurEffect>
 #include <QGraphicsDropShadowEffect>
 #include <QGraphicsEffect>
@@ -24,6 +25,101 @@
 #include <QQuickWindow>
 #include <QSurfaceFormat>
 #include <QThread>
+
+// ----- 3D ANIMATION -----
+
+class D3Keyframe
+{
+public:
+    double position;
+    QVariant value;
+    QEasingCurve::Type curve;
+};
+
+class D3PropertyTrack
+{
+public:
+    QString property;
+    QList<D3Keyframe *> keyframes;
+    ~D3PropertyTrack();
+};
+
+class D3ObjectTrack
+{
+public:
+    QPointer<QObject> object;
+    QList<D3PropertyTrack *> propertyTracks;
+    ~D3ObjectTrack();
+};
+
+D3ObjectTrack::~D3ObjectTrack()
+{
+    qDeleteAll(propertyTracks);
+}
+
+D3PropertyTrack::~D3PropertyTrack()
+{
+    qDeleteAll(keyframes);
+}
+
+double lerp(double a, double b, double t)
+{
+    if (t == 0)
+        return a;
+    else if (t == 1)
+        return b;
+    else
+        return a + t * (b - a);
+}
+
+QVariant lerpVariant(const QVariant &a, const QVariant &b, double t)
+{
+    Q_ASSERT(a.metaType().id() == b.metaType().id());
+
+    switch (a.metaType().id()) {
+    case QMetaType::Float: {
+        return lerp(a.toFloat(), b.toFloat(), t);
+    }
+    case QMetaType::Double: {
+        return lerp(a.toDouble(), b.toDouble(), t);
+    }
+    case QMetaType::Int: {
+        return QVariant::fromValue((int) lerp(a.toInt(), b.toInt(), t));
+    }
+    case QMetaType::UInt: {
+        return QVariant::fromValue((unsigned int) lerp(a.toUInt(), b.toUInt(), t));
+    }
+    case QMetaType::QVector2D: {
+        QVector2D aV = a.value<QVector2D>();
+        QVector2D bV = b.value<QVector2D>();
+        return QVariant::fromValue(QVector2D(lerp(aV.x(), bV.x(), t), lerp(aV.y(), bV.y(), t)));
+    }
+    case QMetaType::QVector3D: {
+        QVector3D aV = a.value<QVector3D>();
+        QVector3D bV = b.value<QVector3D>();
+        return QVariant::fromValue(
+            QVector3D(lerp(aV.x(), bV.x(), t), lerp(aV.y(), bV.y(), t), lerp(aV.z(), bV.z(), t)));
+    }
+    case QMetaType::QColor: {
+        QColor aV = a.value<QColor>();
+        QColor bV = b.value<QColor>();
+        // TODO: Find a better way to transition colors
+        return QVariant::fromValue(QColor::fromRgbF(lerp(aV.redF(), bV.redF(), t),
+                                                    lerp(aV.greenF(), bV.greenF(), t),
+                                                    lerp(aV.blueF(), bV.blueF(), t),
+                                                    lerp(aV.alphaF(), bV.alphaF(), t)));
+    }
+    case QMetaType::QString: {
+        return t < 1 ? a.toString() : b.toString();
+    }
+    default: {
+        qWarning() << "lerpVariant: Variant" << a.typeName() << "is not implemented";
+        return a;
+    }
+    }
+}
+
+// ----------------
 
 bool areWeGuiThread()
 {
@@ -50,7 +146,7 @@ QVariant jsonToVariant(const QJsonObject &json)
                                           json["blue"].toInt(),
                                           json["alpha"].toInt()));
     } else {
-        qWarning() << "Unknown variant type" << type;
+        qWarning() << "jsonToVariant: Unknown variant type" << type;
         return QVariant::fromValue(nullptr);
     }
 }
@@ -91,6 +187,7 @@ public:
     QOpenGLFramebufferObject *fbo{nullptr};
     QQuickItem *rootItem{nullptr};
     QString data = "";
+    QList<D3ObjectTrack *> objectTracks;
 
     TitleState() {}
 
@@ -177,6 +274,77 @@ View3D {    environment: SceneEnvironment {
             QObject *view = rootItem->findChild<QObject *>("viewNode");
             newObject->setParent(view);
             newObject->setProperty("parent", QVariant::fromValue(view));
+
+            if (jsonObj.contains("animationPropertyTracks")) {
+                QJsonArray animationPropertyTracks = jsonObj["animationPropertyTracks"].toArray();
+                if (!animationPropertyTracks.isEmpty()) {
+                    D3ObjectTrack *objectTrack = new D3ObjectTrack();
+                    objectTrack->object = newObject;
+
+                    for (auto propertyTrackRef : animationPropertyTracks) {
+                        QJsonObject propertyTrackJson = propertyTrackRef.toObject();
+                        D3PropertyTrack *propertyTrack = new D3PropertyTrack();
+                        propertyTrack->property = propertyTrackJson["property"].toString();
+
+                        for (auto keyframeRef : propertyTrackJson["keyframes"].toArray()) {
+                            auto keyframeJson = keyframeRef.toObject();
+                            D3Keyframe *keyframe = new D3Keyframe();
+                            keyframe->position = keyframeJson["position"].toDouble();
+                            keyframe->value = jsonToVariant(keyframeJson["value"].toObject());
+                            keyframe->curve = static_cast<QEasingCurve::Type>(
+                                keyframeJson["curve"].toInt());
+                            propertyTrack->keyframes.append(keyframe);
+                        }
+
+                        objectTrack->propertyTracks.append(propertyTrack);
+                    }
+
+                    objectTracks.append(objectTrack);
+                }
+            }
+        }
+    }
+
+    void animationUpdate(double current)
+    {
+        for (auto objectTrack : objectTracks) {
+            if (objectTrack->object.isNull())
+                continue;
+
+            for (auto propertyTrack : objectTrack->propertyTracks) {
+                if (propertyTrack->keyframes.isEmpty())
+                    continue;
+
+                int lastKeyframe = 0;
+                for (int i = 0; i < propertyTrack->keyframes.size() - 1; i++) {
+                    D3Keyframe *a = propertyTrack->keyframes[i];
+
+                    if (current >= a->position) {
+                        lastKeyframe = i;
+                    }
+                }
+
+                D3Keyframe *a = propertyTrack->keyframes[lastKeyframe];
+                D3Keyframe *b = a;
+                double mappedTime = 0;
+                if (propertyTrack->keyframes.size() >= 2) {
+                    b = propertyTrack->keyframes[lastKeyframe + 1];
+                    double keyframeLength = b->position - a->position;
+                    mappedTime = (current - a->position) / keyframeLength;
+                    mappedTime = std::clamp(mappedTime, 0.0, 1.0);
+                }
+
+                QEasingCurve easingCurve(a->curve);
+                mappedTime = easingCurve.valueForProgress(mappedTime);
+
+                auto innerObject = traverseQObjectByProperty(objectTrack->object,
+                                                             propertyTrack->property);
+                QString innerProperty = getPropNameFromProperty(propertyTrack->property);
+
+                QVariant lerped = lerpVariant(a->value, b->value, mappedTime);
+
+                innerObject->setProperty(qPrintable(innerProperty), lerped);
+            }
         }
     }
 
@@ -333,7 +501,7 @@ static int producer_get_image(mlt_frame frame,
             qApp,
             [state, &img2, position, fps]() {
                 state->use();
-                state->rootItem->setProperty("currentTime", (position / fps) * 1000);
+                state->animationUpdate(position / fps);
                 state->renderControl->beginFrame();
                 state->renderControl->polishItems();
                 state->renderControl->sync();
