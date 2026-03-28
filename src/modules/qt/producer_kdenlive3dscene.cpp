@@ -134,7 +134,7 @@ QVariant jsonToVariant(const QJsonObject &json)
     if (type == "nullptr" || type == "bool" || type == "int" || type == "uint" || type == "longlong"
         || type == "ulonglong" || type == "float" || type == "double" || type == "QString"
         || type == "QStringList" || type == "QUrl" || type == "QUuid") {
-        return QVariant::fromValue(json["value"]);
+        return json["value"].toVariant();
     } else if (type == "QVector2D") {
         return QVariant::fromValue(QVector2D(json["x"].toDouble(), json["y"].toDouble()));
     } else if (type == "QVector3D") {
