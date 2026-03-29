@@ -560,6 +560,8 @@ static int producer_get_frame(mlt_producer producer, mlt_frame_ptr frame, int in
     if (frame != nullptr) {
         mlt_properties properties = MLT_FRAME_PROPERTIES(*frame);
         mlt_properties_set_data(properties, "producer", producer, 0, NULL, NULL);
+        mlt_properties_set_int(properties, "progressive", 1);
+        mlt_properties_set_int(properties, "format", mlt_image_rgba);
         mlt_frame_set_position(*frame, mlt_producer_position(producer));
         mlt_frame_push_get_image(*frame, producer_get_image);
     }
