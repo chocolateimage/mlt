@@ -226,12 +226,22 @@ public:
     {
         QQmlComponent component(engine);
         component.setData(R"(import QtQuick3D
-View3D {    environment: SceneEnvironment {
+import QtQuick3D.Helpers
+View3D {    environment: environment
+        Node {objectName: "viewNode"
+        ExtendedSceneEnvironment {
+        property string objectType: "environment"
+        id: environment
+        objectName: "Environment"
         antialiasingMode: SceneEnvironment.MSAA
         antialiasingQuality: SceneEnvironment.VeryHigh
-    }
-        Node {objectName: "viewNode"}})",
+    }}})",
                           QUrl());
+
+        if (component.status() == QQmlComponent::Error) {
+            qCritical() << "Error loading root QML component" << component.errorString();
+            return;
+        }
 
         rootItem = qobject_cast<QQuickItem *>(component.create());
 
@@ -243,37 +253,49 @@ View3D {    environment: SceneEnvironment {
             QJsonObject jsonObj = jsonObjRef.toObject();
             QString qml = jsonObj["qml"].toString();
             QJsonObject propertiesMap = jsonObj["properties"].toObject();
-            QVariantMap initialProperties;
+            QString objectType = jsonObj["objectType"].toString();
+
+            QObject *newObject = nullptr;
+
+            if (objectType == "environment") {
+                newObject = rootItem->property("environment").value<QObject *>();
+                if (!newObject) {
+                    qCritical() << "no environment!";
+                }
+            } else {
+                QVariantMap initialProperties;
+
+                for (auto propertyKey : propertiesMap.keys()) {
+                    if (propertyKey.contains("."))
+                        continue;
+                    QJsonObject propertyObj = propertiesMap[propertyKey].toObject();
+                    initialProperties[propertyKey] = jsonToVariant(propertyObj);
+                }
+
+                QQmlComponent component(engine);
+                component.setData(qml.toUtf8(), QUrl());
+                if (component.status() == QQmlComponent::Error) {
+                    qCritical() << "Error loading QML component" << objectType
+                                << component.errorString();
+                    continue;
+                }
+                newObject = component.createWithInitialProperties(initialProperties);
+            }
 
             for (auto propertyKey : propertiesMap.keys()) {
-                if (propertyKey.contains("."))
-                    continue;
-                QJsonObject propertyObj = propertiesMap[propertyKey].toObject();
-                initialProperties[propertyKey] = jsonToVariant(propertyObj);
+                if (propertyKey.contains(".") || objectType == "environment") {
+                    QJsonObject propertyObj = propertiesMap[propertyKey].toObject();
+                    QObject *obj = traverseQObjectByProperty(newObject, propertyKey);
+                    QString propName = getPropNameFromProperty(propertyKey);
+                    obj->setProperty(qPrintable(propName), jsonToVariant(propertyObj));
+                }
             }
 
-            QQmlComponent component(engine);
-            component.setData(qml.toUtf8(), QUrl());
-            if (component.status() == QQmlComponent::Error) {
-                qCritical() << "Error loading QML component" << jsonObj["objectType"].toString()
-                            << component.errorString();
-                continue;
+            if (objectType != "environment") {
+                QObject *view = rootItem->findChild<QObject *>("viewNode");
+                newObject->setParent(view);
+                newObject->setProperty("parent", QVariant::fromValue(view));
             }
-            QObject *newObject = component.createWithInitialProperties(initialProperties);
-
-            for (auto propertyKey : propertiesMap.keys()) {
-                if (!propertyKey.contains("."))
-                    continue;
-
-                QJsonObject propertyObj = propertiesMap[propertyKey].toObject();
-                QObject *obj = traverseQObjectByProperty(newObject, propertyKey);
-                QString propName = getPropNameFromProperty(propertyKey);
-                obj->setProperty(qPrintable(propName), jsonToVariant(propertyObj));
-            }
-
-            QObject *view = rootItem->findChild<QObject *>("viewNode");
-            newObject->setParent(view);
-            newObject->setProperty("parent", QVariant::fromValue(view));
 
             if (jsonObj.contains("animationPropertyTracks")) {
                 QJsonArray animationPropertyTracks = jsonObj["animationPropertyTracks"].toArray();
