@@ -80,6 +80,10 @@ QVariant lerpVariant(const QVariant &a, const QVariant &b, double t)
     case QMetaType::Float: {
         return lerp(a.toFloat(), b.toFloat(), t);
     }
+    case QMetaType::ULongLong:
+    case QMetaType::LongLong:
+    case QMetaType::ULong:
+    case QMetaType::Long:
     case QMetaType::Double: {
         return lerp(a.toDouble(), b.toDouble(), t);
     }
