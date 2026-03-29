@@ -240,6 +240,11 @@ View3D {    environment: environment
         objectName: "Environment"
         antialiasingMode: SceneEnvironment.SSAA
         antialiasingQuality: SceneEnvironment.VeryHigh
+        backgroundMode: SceneEnvironment.Transparent
+        lightProbe: Texture {
+            objectName: "lightProbe"
+            source: ""
+        }
     }}})",
                           QUrl());
 
