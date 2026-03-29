@@ -1606,6 +1606,7 @@ int mlt_properties_dir_list(mlt_properties self, const char *dirname, const char
 
 void mlt_properties_close(mlt_properties self)
 {
+    /*
     if (self != NULL && mlt_properties_dec_ref(self) <= 0) {
         if (self->close != NULL) {
             self->close(self->close_object);
@@ -1662,6 +1663,7 @@ void mlt_properties_close(mlt_properties self)
                 free(self);
         }
     }
+    */
 }
 
 /** Determine if the properties list is really just a sequence or ordered list.
