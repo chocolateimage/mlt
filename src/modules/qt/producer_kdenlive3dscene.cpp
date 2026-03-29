@@ -136,8 +136,9 @@ QVariant jsonToVariant(const QJsonObject &json)
 {
     QString type = json["type"].toString();
     if (type == "nullptr" || type == "bool" || type == "int" || type == "uint" || type == "longlong"
-        || type == "ulonglong" || type == "float" || type == "double" || type == "QString"
-        || type == "QStringList" || type == "QUrl" || type == "QUuid") {
+        || type == "ulonglong" || type == "qlonglong" || type == "qlong" || type == "float"
+        || type == "double" || type == "QString" || type == "QStringList" || type == "QUrl"
+        || type == "QUuid") {
         return json["value"].toVariant();
     } else if (type == "QVector2D") {
         return QVariant::fromValue(QVector2D(json["x"].toDouble(), json["y"].toDouble()));
@@ -151,7 +152,7 @@ QVariant jsonToVariant(const QJsonObject &json)
                                           json["alpha"].toInt()));
     } else {
         qWarning() << "jsonToVariant: Unknown variant type" << type;
-        return QVariant::fromValue(nullptr);
+        return json["value"].toVariant();
     }
 }
 
