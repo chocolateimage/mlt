@@ -238,7 +238,7 @@ View3D {    environment: environment
         property string objectType: "environment"
         id: environment
         objectName: "Environment"
-        antialiasingMode: SceneEnvironment.MSAA
+        antialiasingMode: SceneEnvironment.SSAA
         antialiasingQuality: SceneEnvironment.VeryHigh
     }}})",
                           QUrl());
